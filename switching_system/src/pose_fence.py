@@ -108,7 +108,7 @@ class PoseFencer(object):
                     "wxyz": [orientation.w, orientation.x, orientation.y,
                              orientation.z]
                 }
-                rospy.set_param(pose_name, pose_dict)
+                rospy.set_param('/keyframes/'+pose_name, pose_dict)
             except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
                 return
         try:

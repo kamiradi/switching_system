@@ -6,7 +6,7 @@ import geometry_msgs.msg as geom_msg
 import sensor_msgs.msg as sense_msg
 import control_msgs.msg as ctrl_msg
 from pydrake.all import (
-    RigidTransform, Quaternion, RollPitchYaw
+    RigidTransform, Quaternion, RollPitchYaw, PiecewisePose
 )
 
 
@@ -67,3 +67,17 @@ class FrankaStateMachine(object):
     def _joyCallback(self, msg):
         button1 = msg.buttons[0]
         button2 = msg.buttons[1]
+
+    def execute(self):
+        grasp = rospy.get_param("/keyframes/X_Pregrasp")
+        X_Pregrasp = RigidTransform(
+            Quaternion(wxyz=np.array(grasp["wxyz"])),
+            grasp["xyz"]
+        )
+
+
+if __name__ == "__main__":
+    rospy.init_node('StateMachine', anonymous=True)
+    state_machine = FrankaStateMachine(rospy.get_name(), False)
+    state_machine.execute()
+    rospy.spin()
