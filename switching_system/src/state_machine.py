@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import rospy
+import sys
 import tf2_ros
 import numpy as np
 import geometry_msgs.msg as geom_msg
@@ -32,14 +33,50 @@ def to_ros_pose(X_AB):
     return msg
 
 
+def _read_pose_msg(p, q):
+    # p - position message
+    # q - quaternion message
+    return RigidTransform(
+        Quaternion(wxyz=[q.w, q.x, q.y, q.z]), [p.x, p.y, p.z])
+
+
+def from_ros_pose(pose):
+    """Converts ROS pose to Drake transform."""
+    return _read_pose_msg(p=pose.position, q=pose.orientation)
+
+
+def from_ros_transform(tr):
+    """Converts ROS transform to Drake transform."""
+    return _read_pose_msg(p=tr.translation, q=tr.rotation)
+
+
+def MakePegPoseTrajectory(X_G, times):
+    sample_times = []
+    poses = []
+    for name in ["initial", "final"]:
+        sample_times.append(times[name])
+        poses.append(X_G[name])
+
+    return PiecewisePose.MakeLinear(sample_times, poses)
+
+
 class FrankaStateMachine(object):
     """
     This class abstracts a motion planner in end-effector cartesian coordinates
     """
 
     def __init__(self, name, debug=True):
+
         # class related variables
         self._name = name
+        self._freq = 100
+        self._timer = None
+        self._idx = 0
+        self._steps = 0
+        self._velocity = 0.05
+        self._plan = None
+        self._plan_start_time = None
+        self._debug = debug
 
         # subscribers and pulishers
         self._joy_sub = rospy.Subscriber(
@@ -75,9 +112,65 @@ class FrankaStateMachine(object):
             grasp["xyz"]
         )
 
+        # get current pose
+        try:
+            tf_X_EE = self._tfBuffer.lookup_transform(
+                'panda_link0',
+                'panda_EE',
+                rospy.Time())
+            X_Gcurr = from_ros_transform(tf_X_EE.transform)
+            # rospy.loginfo("drake translation: {}".format(
+            #     X_Pregrasp.translation()))
+            # rospy.loginfo("tf translation: {}".format(
+            #     np.array([t.x, t.y, t.z])))
+            horizon = np.linalg.norm(
+                X_Pregrasp.translation() -
+                X_Gcurr.translation()) / self._velocity
+            rospy.loginfo("time horizon: {}".format(horizon))
+            X_G = {}
+            times = {}
+            X_G["initial"] = X_Gcurr
+            X_G["final"] = X_Pregrasp
+            times["initial"] = 0.0
+            times["final"] = horizon
+            self._plan = MakePegPoseTrajectory(X_G, times)
+
+        except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
+            return
+
+        dur = rospy.Duration(1.0/self._freq)
+        self._timer = rospy.Timer(dur, self.timer_callback)
+        self._steps = horizon * self._freq
+
+    def timer_callback(self, event):
+        # rospy.loginfo("timer ticking: {}".format(event))
+        if self._plan is None:
+            rospy.loginfo("Motion plan has not been set!")
+            self._timer.shutdown()
+        if self._idx == 0:
+            self._plan_start_time = rospy.Time.now().to_sec()
+        if self._idx < self._steps:
+            self._idx += 1
+            time = rospy.Time.now().to_sec() - self._plan_start_time
+            X_Gcommand = self._plan.GetPose(time)
+
+            if not self._debug:
+                # sends calculated pose to robot
+                pose = geom_msg.PoseStamped()
+                pose.header.stamp = rospy.Time.now()
+                pose.header.frame_id = "e_pose"
+                pose.pose = to_ros_pose(X_Gcommand)
+
+                self._equilibrium_pose_pub.publish(pose)
+        else:
+            self._timer.shutdown()
+            rospy.loginfo("Plan succeeded!")
+            return
+
 
 if __name__ == "__main__":
     rospy.init_node('StateMachine', anonymous=True)
     state_machine = FrankaStateMachine(rospy.get_name(), False)
+    rospy.sleep(4)
     state_machine.execute()
     rospy.spin()
