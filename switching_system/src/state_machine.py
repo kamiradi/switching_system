@@ -1,11 +1,15 @@
 #!/usr/bin/python
 import rospy
+import actionlib
 import sys
 import tf2_ros
 import numpy as np
 import geometry_msgs.msg as geom_msg
 import sensor_msgs.msg as sense_msg
 import control_msgs.msg as ctrl_msg
+from switching_system.msg import (
+    CmdPoseAction, CmdPoseFeedback, CmdPoseResult, CmdPoseGoal
+)
 from pydrake.all import (
     RigidTransform, Quaternion, RollPitchYaw, PiecewisePose
 )
@@ -84,11 +88,6 @@ class FrankaStateMachine(object):
             sense_msg.Joy,
             self._joyCallback
         )
-        self._equilibrium_pose_pub = rospy.Publisher(
-            "/cartesian_impedance_controller/equilibrium_pose",
-            geom_msg.PoseStamped,
-            queue_size=1
-        )
         self._gripper_cmd_pub = rospy.Publisher(
             "/gripper_controller/gripper_cmd/goal",
             ctrl_msg.GripperCommandActionGoal,
@@ -99,6 +98,13 @@ class FrankaStateMachine(object):
         self._tfListener = tf2_ros.TransformListener(self._tfBuffer)
         self._tfBr = tf2_ros.TransformBroadcaster()
 
+        self.action_client = actionlib.SimpleActionClient(
+            'cmd_pose',
+            CmdPoseAction
+        )
+        self.goal_cmd_pose = CmdPoseGoal()
+        self._tf_X_Gstart = None
+
         rospy.loginfo("State Machine initialized")
 
     def _joyCallback(self, msg):
@@ -107,10 +113,17 @@ class FrankaStateMachine(object):
 
     def execute(self):
         grasp = rospy.get_param("/keyframes/X_Pregrasp")
-        X_Pregrasp = RigidTransform(
-            Quaternion(wxyz=np.array(grasp["wxyz"])),
-            grasp["xyz"]
-        )
+        # X_Pregrasp = RigidTransform(
+        #     Quaternion(wxyz=np.array(grasp["wxyz"])),
+        #     grasp["xyz"]
+        # )
+        self.goal_cmd_pose.pose.position.x = grasp["xyz"][0]
+        self.goal_cmd_pose.pose.position.y = grasp["xyz"][1]
+        self.goal_cmd_pose.pose.position.z = grasp["xyz"][2]
+        self.goal_cmd_pose.pose.orientation.w = grasp["wxyz"][0]
+        self.goal_cmd_pose.pose.orientation.x = grasp["wxyz"][1]
+        self.goal_cmd_pose.pose.orientation.y = grasp["wxyz"][2]
+        self.goal_cmd_pose.pose.orientation.z = grasp["wxyz"][3]
 
         # get current pose
         try:
@@ -118,59 +131,66 @@ class FrankaStateMachine(object):
                 'panda_link0',
                 'panda_EE',
                 rospy.Time())
-            X_Gcurr = from_ros_transform(tf_X_EE.transform)
-            # rospy.loginfo("drake translation: {}".format(
-            #     X_Pregrasp.translation()))
-            # rospy.loginfo("tf translation: {}".format(
-            #     np.array([t.x, t.y, t.z])))
-            horizon = np.linalg.norm(
-                X_Pregrasp.translation() -
-                X_Gcurr.translation()) / self._velocity
-            rospy.loginfo("time horizon: {}".format(horizon))
-            X_G = {}
-            times = {}
-            X_G["initial"] = X_Gcurr
-            X_G["final"] = X_Pregrasp
-            times["initial"] = 0.0
-            times["final"] = horizon
-            self._plan = MakePegPoseTrajectory(X_G, times)
+            self._tf_X_Gstart = tf_X_EE
+            # X_Gcurr = from_ros_transform(tf_X_EE.transform)
+            # # rospy.loginfo("drake translation: {}".format(
+            # #     X_Pregrasp.translation()))
+            # # rospy.loginfo("tf translation: {}".format(
+            # #     np.array([t.x, t.y, t.z])))
+            # horizon = np.linalg.norm(
+            #     X_Pregrasp.translation() -
+            #     X_Gcurr.translation()) / self._velocity
+            # rospy.loginfo("time horizon: {}".format(horizon))
+            # X_G = {}
+            # times = {}
+            # X_G["initial"] = X_Gcurr
+            # X_G["final"] = X_Pregrasp
+            # times["initial"] = 0.0
+            # times["final"] = horizon
+            # self._plan = MakePegPoseTrajectory(X_G, times)
 
         except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
             return
 
         dur = rospy.Duration(1.0/self._freq)
         self._timer = rospy.Timer(dur, self.timer_callback)
-        self._steps = horizon * self._freq
+        rospy.loginfo("Starting timer events")
+        # self._steps = horizon * self._freq
 
     def timer_callback(self, event):
         # rospy.loginfo("timer ticking: {}".format(event))
-        if self._plan is None:
-            rospy.loginfo("Motion plan has not been set!")
-            self._timer.shutdown()
-        if self._idx == 0:
-            self._plan_start_time = rospy.Time.now().to_sec()
-        if self._idx < self._steps:
-            self._idx += 1
-            time = rospy.Time.now().to_sec() - self._plan_start_time
-            X_Gcommand = self._plan.GetPose(time)
+        # if self._plan is None:
+        #     rospy.loginfo("Motion plan has not been set!")
+        #     self._timer.shutdown()
+        # if self._idx == 0:
+        #     self._plan_start_time = rospy.Time.now().to_sec()
+        # if self._idx < self._steps:
+        #     self._idx += 1
+        #     time = rospy.Time.now().to_sec() - self._plan_start_time
+        #     X_Gcommand = self._plan.GetPose(time)
 
-            if not self._debug:
-                # sends calculated pose to robot
-                pose = geom_msg.PoseStamped()
-                pose.header.stamp = rospy.Time.now()
-                pose.header.frame_id = "e_pose"
-                pose.pose = to_ros_pose(X_Gcommand)
+        #     if not self._debug:
+        #         # sends calculated pose to robot
+        #         pose = geom_msg.PoseStamped()
+        #         pose.header.stamp = rospy.Time.now()
+        #         pose.header.frame_id = "e_pose"
+        #         pose.pose = to_ros_pose(X_Gcommand)
 
-                self._equilibrium_pose_pub.publish(pose)
-        else:
-            self._timer.shutdown()
-            rospy.loginfo("Plan succeeded!")
-            return
+        #         self._equilibrium_pose_pub.publish(pose)
+        # else:
+        #     self._timer.shutdown()
+        #     rospy.loginfo("Plan succeeded!")
+        #     return
+        rospy.loginfo("Timer event")
+        self.action_client.wait_for_server()
+        self.action_client.send_goal_and_wait(self.goal_cmd_pose)
+        result = self.action_client.get_result()
+        self.reachedGoal = result.reached_goal
 
 
 if __name__ == "__main__":
     rospy.init_node('StateMachine', anonymous=True)
     state_machine = FrankaStateMachine(rospy.get_name(), False)
-    rospy.sleep(4)
+    rospy.sleep(3)
     state_machine.execute()
     rospy.spin()
