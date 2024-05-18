@@ -127,12 +127,6 @@ class CmdPoseActionServer(object):
         completion or until its interuption (pre-empt)
         """
         # accepts a goal from the client
-        # grasp = rospy.get_param("/keyframes/X_Pregrasp")
-        # X_Pregrasp = RigidTransform(
-        #     Quaternion(wxyz=np.array(grasp["wxyz"])),
-        #     grasp["xyz"]
-        # )
-        rospy.loginfo("Recieved goal!")
         accepted_goal = self._action_server.accept_new_goal()
         X_Pregrasp = from_ros_pose(accepted_goal.pose)
 
@@ -162,9 +156,10 @@ class CmdPoseActionServer(object):
         except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
             return
 
+        self._idx = 0
+        self._steps = horizon * self._freq
         dur = rospy.Duration(1.0/self._freq)
         self._timer = rospy.Timer(dur, self.timer_callback)
-        self._steps = horizon * self._freq
 
     def timer_callback(self, event):
 
@@ -185,6 +180,7 @@ class CmdPoseActionServer(object):
             time = rospy.Time.now().to_sec() - self._plan_start_time
             X_Gcommand = self._plan.GetPose(time)
 
+            rospy.loginfo("Publishing pose")
             if not self._debug:
                 # sends calculated pose to robot
                 pose = geom_msg.PoseStamped()
