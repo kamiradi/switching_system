@@ -58,6 +58,46 @@ def from_ros_transform(tr):
     return _read_pose_msg(p=tr.translation, q=tr.rotation)
 
 
+def keyframe_to_pose(keyframe):
+    """
+    Converts keyframe in ros param to CmdPoseGoal object
+    """
+    pose_goal = CmdPoseGoal()
+    pose = rospy.get_param(keyframe)
+
+    pose_goal.pose.position.x = pose["xyz"][0]
+    pose_goal.pose.position.y = pose["xyz"][1]
+    pose_goal.pose.position.z = pose["xyz"][2]
+    pose_goal.pose.orientation.w = pose["wxyz"][0]
+    pose_goal.pose.orientation.x = pose["wxyz"][1]
+    pose_goal.pose.orientation.y = pose["wxyz"][2]
+    pose_goal.pose.orientation.z = pose["wxyz"][3]
+
+    return pose_goal
+
+
+def getPoseFence():
+    pose_fence = {}
+
+    pose_fence['X_Pregrasp'] = keyframe_to_pose("/keyframes/X_Pregrasp")
+    pose_fence['X_Gstart'] = keyframe_to_pose("/keyframes/X_Gstart")
+    pose_fence['X_Insertapproach'] = keyframe_to_pose(
+        "/keyframes/X_Insertapproach")
+    pose_fence['X_Preinsert'] = keyframe_to_pose("/keyframes/X_Preinsert")
+
+    X_Ggrasp = from_ros_pose(pose_fence['X_Pregrasp'].pose) @ RigidTransform(
+        [0, 0, 0.05])
+    X_Ginsert = from_ros_pose(pose_fence['X_Preinsert'].pose) @ RigidTransform(
+        [0, 0, 0.05]
+    )
+    pose_fence['X_Ggrasp'] = CmdPoseGoal()
+    pose_fence['X_Ggrasp'].pose = to_ros_pose(X_Ggrasp)
+    pose_fence['X_Ginsert'] = CmdPoseGoal()
+    pose_fence['X_Ginsert'].pose = to_ros_pose(X_Ginsert)
+
+    return pose_fence
+
+
 def shutdown(behaviour_tree):
     behaviour_tree.interrupt()
 
@@ -203,20 +243,6 @@ class FrankaBTStateMachine(object):
         button2 = msg.buttons[1]
 
     def execute(self):
-        # get all the keyframes
-        pregrasp = rospy.get_param("/keyframes/X_Pregrasp")
-        start = rospy.get_param("/keyframes/X_Gstart")
-        X_Pregrasp = CmdPoseGoal()
-        X_Gstart = CmdPoseGoal()
-
-        X_Pregrasp.pose.position.x = pregrasp["xyz"][0]
-        X_Pregrasp.pose.position.y = pregrasp["xyz"][1]
-        X_Pregrasp.pose.position.z = pregrasp["xyz"][2]
-        X_Pregrasp.pose.orientation.w = pregrasp["wxyz"][0]
-        X_Pregrasp.pose.orientation.x = pregrasp["wxyz"][1]
-        X_Pregrasp.pose.orientation.y = pregrasp["wxyz"][2]
-        X_Pregrasp.pose.orientation.z = pregrasp["wxyz"][3]
-
         try:
             tf_X_EE = self._tfBuffer.lookup_transform(
                 'panda_link0',
@@ -231,20 +257,11 @@ class FrankaBTStateMachine(object):
         except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
             return
 
-        X_Gstart.pose.position.x = start["xyz"][0]
-        X_Gstart.pose.position.y = start["xyz"][1]
-        X_Gstart.pose.position.z = start["xyz"][2]
-        X_Gstart.pose.orientation.w = start["wxyz"][0]
-        X_Gstart.pose.orientation.x = start["wxyz"][1]
-        X_Gstart.pose.orientation.y = start["wxyz"][2]
-        X_Gstart.pose.orientation.z = start["wxyz"][3]
-
-        self.pose_fence = {}
-        self.pose_fence['X_Pregrasp'] = X_Pregrasp
-        self.pose_fence['X_Gstart'] = X_Gstart
+        self.pose_fence = getPoseFence()
 
         # setup state machine
-        self.state_machine = constructBT(self.pose_fence)
+        # self.state_machine = constructBT(self.pose_fence)
+        self.state_machine = GraspBT(self.pose_fence)
         behaviour_tree = py_trees_ros.trees.BehaviourTree(self.state_machine)
         # self.state_machine.setup()
         # get current pose
