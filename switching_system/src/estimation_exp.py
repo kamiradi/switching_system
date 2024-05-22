@@ -103,7 +103,7 @@ def getPrismaticPoseFence():
     Retrieves keyframes relavant to the prismatic experiment and 
     """
     pose_fence = {}
-    prismatic = 0.02
+    prismatic = 0.04
 
     pose_fence['X_Pregrasp'] = keyframe_to_pose("/keyframes/X_Pregrasp")
     pose_fence['X_Gstart'] = keyframe_to_pose("/keyframes/X_Gstart")
@@ -399,7 +399,7 @@ class FrankaEstimationMachine(object):
 
         # setup state machine
         # self.state_machine = constructBT(self.pose_fence)
-        self.state_machine = GraspBT(self.pose_fence)
+        self.state_machine = EstimationBT(self.pose_fence)
         behaviour_tree = py_trees_ros.trees.BehaviourTree(self.state_machine)
         # self.state_machine.setup()
         # get current pose

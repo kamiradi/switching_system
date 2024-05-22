@@ -6,6 +6,8 @@ from py_trees.blackboard import Blackboard
 from py_trees.common import Status
 from py_trees.composites import Selector, Sequence
 # from py_trees.decorators import Repeat
+import py_trees_ros
+from py_trees_ros.subscribers import ToBlackboard
 from py_trees_ros.actions import ActionClient
 import sys
 from enum import Enum
@@ -54,6 +56,8 @@ class State(object):
     @property
     def location(self):
         return self._loc
+
+##### State Machine Creation #####
 
 
 def createGraphicalStateMachine():
@@ -111,6 +115,65 @@ def createGraspStateMachine(pose_fence):
     return waypoints, modes
 
 
+def createEstimationStateMachine(pose_fence):
+    """
+    Gets a dictionary of pose waypoints, returns a queue of waypoints and
+    corresponding states
+    """
+    waypoints = queue.Queue(maxsize=50)
+    modes = queue.Queue(maxsize=50)
+
+    waypoints.put(pose_fence['X_Gstart'])
+    modes.put(PlannerState.INITIALISE)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.ALIGN)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.GRASP)
+
+    waypoints.put(pose_fence['X_Ginsert'])
+    modes.put(PlannerState.INSERT)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.ALIGN)
+
+    waypoints.put(pose_fence['X_Ginsert'])
+    modes.put(PlannerState.INSERT)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.ALIGN)
+
+    waypoints.put(pose_fence['X_Ginsert'])
+    modes.put(PlannerState.INSERT)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.ALIGN)
+
+    waypoints.put(pose_fence['X_Ginsert'])
+    modes.put(PlannerState.INSERT)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.ALIGN)
+
+    waypoints.put(pose_fence['X_Ginsert'])
+    modes.put(PlannerState.INSERT)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.ALIGN)
+
+    waypoints.put(pose_fence['X_Ginsert'])
+    modes.put(PlannerState.INSERT)
+
+    waypoints.put(pose_fence['X_Ginsert'])
+    modes.put(PlannerState.GRASPREL)
+
+    waypoints.put(pose_fence['X_Gstart'])
+    modes.put(PlannerState.TERMINATE)
+
+    return waypoints, modes
+
+
 def createDebugStateMachine(pose_fence):
     """
     Gets a dictionary of poses, returns a queue of waypoints and corresponding
@@ -129,6 +192,8 @@ def createDebugStateMachine(pose_fence):
     modes.put(PlannerState.RESET)
 
     return waypoints, modes
+
+##### BT Leaf nodes #####
 
 
 class AtTarget(Behaviour):
@@ -341,6 +406,46 @@ class Grasp(ActionClient):
         return True
 
 
+class forceToBlackboard(ToBlackboard):
+    """
+    Subscribes to the F_ext topic and writes the latest value to the
+    blackboard. It also maintains a moving average of the force experienced by
+    the robot, and a naive estimation of contact
+    """
+
+    def __init__(
+        self,
+            name,
+            topic_name="/force_state_controller/F_ext",
+            threshold=5.0):
+        super(forceToBlackboard, self).__init__(
+            name=name,
+            topic_name=topic_name,
+            topic_type=gmsg.WrenchStamped,
+            blackboard_variables={"F_ext": None},
+            clearing_policy=py_trees.common.ClearingPolicy.NEVER
+        )
+        self.blackboard = Blackboard()
+        self.blackboard.F_ext = gmsg.WrenchStamped()
+        # self.blackboard.F_ext_avg = 0.0
+        self.contact_threshold = threshold
+
+    def update(self):
+        """
+        Calls the parent to write the raw data to the blackboard. Additionally
+        it also maintains a moving average of the force, and checks if contact
+        threshold has been exceeded.
+        """
+        status = super(forceToBlackboard, self).update()
+        if self.blackboard.F_ext.wrench.force.z > self.contact_threshold:
+            self.blackboard.contact_estimated = True
+        else:
+            self.blackboard.contact_estimated = False
+        return status
+
+##### BT Construction #####
+
+
 def constructBT(pose_fence):
     """
     Assembles an insertion state machine, instantiated as a BT via py_trees.
@@ -352,6 +457,8 @@ def constructBT(pose_fence):
                 - move_to_pose
             - get_next_pose
     """
+    # blackboard update nodes
+    # force_external =
     # conditions nodes as guards
     at_target = AtTarget(name="at_target")  # guard condition
 
@@ -407,6 +514,65 @@ def GraspBT(pose_fence):
         name="get_next_pose",
         pose_fence=pose_fence,
         sm_func=createGraspStateMachine
+    )
+    # move = MoveToPose(name="move_to_pose")
+    move = MoveToPose(
+        action_namespace="cmd_pose",
+        action_spec=CmdPoseAction,
+        action_goal=CmdPoseGoal(),
+        override_feedback_message_on_running="moving"
+    )
+
+    grasp = Grasp(
+        action_namespace="gripper_controller/gripper_cmd",
+        action_spec=cmsg.GripperCommandAction,
+        action_goal=cmsg.GripperCommandGoal(),
+        override_feedback_message_on_running="grasping"
+    )
+
+    # control nodes
+    insert_seq = Sequence(name="insert_seq", memory=False)
+    move_composite = Selector(name="check_and_move_sel", memory=False)
+    grasp_composite = Selector(name="check_and_grasp_sel", memory=False)
+    should_grasp = GraspCheck(name="grasp_check")
+
+    # root = Timeout(
+    #     name="execute_dec",
+    #     child=insert_seq,
+    #     num_success=-1)
+    root = insert_seq
+
+    grasp_composite.add_children(
+        [should_grasp, grasp]
+    )
+    move_composite.add_children(
+        [at_target, move]
+    )
+    insert_seq.add_children(
+        [move_composite, grasp_composite, get_pose]
+    )
+    return root
+
+
+def EstimationBT(pose_fence):
+    """
+    Assembles an insertion state machine, instantiated as a BT via py_trees.
+    The state machine is implemented as follows
+    - repeat_dec
+        - insert_seq
+            - check_and_move_sel
+                - at_target
+                - move_to_pose
+            - get_next_pose
+    """
+    # conditions nodes as guards
+    at_target = AtTarget(name="at_target")  # guard condition
+
+    # actions
+    get_pose = GetNextPose(
+        name="get_next_pose",
+        pose_fence=pose_fence,
+        sm_func=createEstimationStateMachine
     )
     # move = MoveToPose(name="move_to_pose")
     move = MoveToPose(
