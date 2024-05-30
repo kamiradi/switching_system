@@ -193,7 +193,7 @@ def createDebugStateMachine(pose_fence):
 
     return waypoints, modes
 
-##### BT Leaf nodes #####
+# BT Leaf nodes
 
 
 class AtTarget(Behaviour):
@@ -443,7 +443,7 @@ class forceToBlackboard(ToBlackboard):
             self.blackboard.contact_estimated = False
         return status
 
-##### BT Construction #####
+# BT Construction
 
 
 def constructBT(pose_fence):
@@ -565,6 +565,9 @@ def EstimationBT(pose_fence):
                 - move_to_pose
             - get_next_pose
     """
+    # blackboard update nodes
+    force_updateBB = forceToBlackboard(name="F_extBB")
+
     # conditions nodes as guards
     at_target = AtTarget(name="at_target")  # guard condition
 
@@ -590,25 +593,30 @@ def EstimationBT(pose_fence):
     )
 
     # control nodes
-    insert_seq = Sequence(name="insert_seq", memory=False)
-    move_composite = Selector(name="check_and_move_sel", memory=False)
-    grasp_composite = Selector(name="check_and_grasp_sel", memory=False)
+    insert_composite_seq = Sequence(name="insert_seq", memory=False)
+    move_composite_sel = Selector(name="check_and_move_sel", memory=False)
+    grasp_composite_sel = Selector(name="check_and_grasp_sel", memory=False)
     should_grasp = GraspCheck(name="grasp_check")
 
     # root = Timeout(
     #     name="execute_dec",
     #     child=insert_seq,
     #     num_success=-1)
-    root = insert_seq
+    root = insert_composite_seq
 
-    grasp_composite.add_children(
-        [should_grasp, grasp]
+    grasp_composite_sel.add_children(
+        [should_grasp,
+         grasp]
     )
-    move_composite.add_children(
-        [at_target, move]
+    move_composite_sel.add_children(
+        [at_target,
+         move]
     )
-    insert_seq.add_children(
-        [move_composite, grasp_composite, get_pose]
+    insert_composite_seq.add_children(
+        [force_updateBB,
+         move_composite_sel,
+         grasp_composite_sel,
+         get_pose]
     )
     return root
 
