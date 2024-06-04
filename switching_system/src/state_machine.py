@@ -14,7 +14,7 @@ from switching_system.msg import (
 from pydrake.all import (
     RigidTransform, Quaternion, RollPitchYaw, PiecewisePose
 )
-from states import *
+from behaviours import *
 import py_trees_ros
 import py_trees.console as console
 
