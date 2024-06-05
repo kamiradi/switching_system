@@ -146,7 +146,7 @@ def createEstimationStateMachine(pose_fence):
     waypoints.put(pose_fence['X_Ginsert'])
     modes.put(PlannerState.INSERT)
 
-    waypoints.put(pose_fence['X_Ginsert'])
+    waypoints.put(pose_fence['X_Preinsert'])
     modes.put(PlannerState.GRASPREL)
 
     waypoints.put(pose_fence['X_Gstart'])

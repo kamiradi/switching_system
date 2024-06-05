@@ -230,8 +230,10 @@ class CmdPoseActionServer(object):
             self._timer.shutdown()
             rospy.loginfo("Plan succeeded!")
             self._result.reached_goal = True
-            estimation_stopped = self._stop_estimation_srv()
-            estimation_reset = self._reset_estimation_srv()
+            if self.use_estimation:
+                estimation_stopped = self._stop_estimation_srv()
+                estimation_reset = self._reset_estimation_srv()
+                self.use_estimation = False
             self._action_server.set_succeeded(self._result)
             return
 
