@@ -1,5 +1,6 @@
 # Define the goal
-geometry_msgs/Pose pose
+# geometry_msgs/Pose pose
+EstimationPose pose
 ---
 # Define the result
 bool reached_goal

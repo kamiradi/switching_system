@@ -7,6 +7,7 @@ import numpy as np
 import geometry_msgs.msg as geom_msg
 import sensor_msgs.msg as sense_msg
 import control_msgs.msg as ctrl_msg
+from std_srvs.srv import Empty
 from switching_system.msg import CmdPoseAction, CmdPoseFeedback, CmdPoseResult
 from pydrake.all import (
     RigidTransform, Quaternion, RollPitchYaw, PiecewisePose
@@ -79,6 +80,10 @@ class CmdPoseActionServer(object):
         self._plan = None
         self._plan_start_time = None
         self._debug = debug
+        self.start_srv = "/ae_ros/start_estimation"
+        self.stop_srv = "/ae_ros/stop_estimation"
+        self.reset_srv = "/ae_ros/reset_estimation"
+        self.use_estimation = False
 
         # some subscribers and publishers
         self._equilibrium_pose_pub = rospy.Publisher(
@@ -91,6 +96,30 @@ class CmdPoseActionServer(object):
             ctrl_msg.GripperCommandActionGoal,
             queue_size=1
         )
+
+        # start estimation service
+        rospy.wait_for_service(self.start_srv)
+        try:
+            self._start_estimation_srv = rospy.ServiceProxy(
+                self.start_srv, Empty)
+        except rospy.ServiceException as e:
+            rospy.logwarn("Failed to find service: %s", e)
+
+        # stop estimation service
+        rospy.wait_for_service(self.stop_srv)
+        try:
+            self._stop_estimation_srv = rospy.ServiceProxy(
+                self.stop_srv, Empty)
+        except rospy.ServiceException as e:
+            rospy.logwarn("Failed to find service: %s", e)
+
+        # reset estimation service
+        rospy.wait_for_service(self.reset_srv)
+        try:
+            self._reset_estimation_srv = rospy.ServiceProxy(
+                self.reset_srv, Empty)
+        except rospy.ServiceException as e:
+            rospy.logwarn("Failed to find service: %s", e)
 
         self._tfBuffer = tf2_ros.Buffer()
         self._tfListener = tf2_ros.TransformListener(self._tfBuffer)
@@ -113,6 +142,7 @@ class CmdPoseActionServer(object):
         self._action_server.start()
 
         rospy.loginfo("Started pose command action server")
+        rospy.loginfo("Found all estimation services")
 
     def preempt_callback(self):
         """
@@ -128,7 +158,8 @@ class CmdPoseActionServer(object):
         """
         # accepts a goal from the client
         accepted_goal = self._action_server.accept_new_goal()
-        X_Pregrasp = from_ros_pose(accepted_goal.pose)
+        self.use_estimation = accepted_goal.pose.use_estimation
+        X_Pregrasp = from_ros_pose(accepted_goal.pose.pose)
 
         # get current pose
         try:
@@ -157,6 +188,11 @@ class CmdPoseActionServer(object):
             return
 
         self._idx = 0
+        if self.use_estimation:
+            try:
+                success = self._start_estimation_srv()
+            except Exception as e:
+                rospy.logwarn("Service call failed: %s", e)
         self._steps = horizon * self._freq
         dur = rospy.Duration(1.0/self._freq)
         self._timer = rospy.Timer(dur, self.timer_callback)
@@ -180,7 +216,6 @@ class CmdPoseActionServer(object):
             time = rospy.Time.now().to_sec() - self._plan_start_time
             X_Gcommand = self._plan.GetPose(time)
 
-            rospy.loginfo("Publishing pose")
             if not self._debug:
                 # sends calculated pose to robot
                 pose = geom_msg.PoseStamped()
@@ -195,6 +230,8 @@ class CmdPoseActionServer(object):
             self._timer.shutdown()
             rospy.loginfo("Plan succeeded!")
             self._result.reached_goal = True
+            estimation_stopped = self._stop_estimation_srv()
+            estimation_reset = self._reset_estimation_srv()
             self._action_server.set_succeeded(self._result)
             return
 

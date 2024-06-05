@@ -14,7 +14,7 @@ from switching_system.msg import (
 from pydrake.all import (
     RigidTransform, Quaternion, RollPitchYaw, PiecewisePose
 )
-from states import *
+from behaviours import *
 import py_trees_ros
 import py_trees.console as console
 
@@ -65,13 +65,14 @@ def keyframe_to_pose(keyframe):
     pose_goal = CmdPoseGoal()
     pose = rospy.get_param(keyframe)
 
-    pose_goal.pose.position.x = pose["xyz"][0]
-    pose_goal.pose.position.y = pose["xyz"][1]
-    pose_goal.pose.position.z = pose["xyz"][2]
-    pose_goal.pose.orientation.w = pose["wxyz"][0]
-    pose_goal.pose.orientation.x = pose["wxyz"][1]
-    pose_goal.pose.orientation.y = pose["wxyz"][2]
-    pose_goal.pose.orientation.z = pose["wxyz"][3]
+    pose_goal.pose.pose.position.x = pose["xyz"][0]
+    pose_goal.pose.pose.position.y = pose["xyz"][1]
+    pose_goal.pose.pose.position.z = pose["xyz"][2]
+    pose_goal.pose.pose.orientation.w = pose["wxyz"][0]
+    pose_goal.pose.pose.orientation.x = pose["wxyz"][1]
+    pose_goal.pose.pose.orientation.y = pose["wxyz"][2]
+    pose_goal.pose.pose.orientation.z = pose["wxyz"][3]
+    pose_goal.pose.use_estimation = False
 
     return pose_goal
 
@@ -85,15 +86,17 @@ def getInsertionPoseFence():
         "/keyframes/X_Insertapproach")
     pose_fence['X_Preinsert'] = keyframe_to_pose("/keyframes/X_Preinsert")
 
-    X_Ggrasp = from_ros_pose(pose_fence['X_Pregrasp'].pose) @ RigidTransform(
+    X_Ggrasp = from_ros_pose(pose_fence['X_Pregrasp'].pose.pose) @ RigidTransform(
         [0, 0, 0.03])
-    X_Ginsert = from_ros_pose(pose_fence['X_Preinsert'].pose) @ RigidTransform(
+    X_Ginsert = from_ros_pose(pose_fence['X_Preinsert'].pose.pose) @ RigidTransform(
         [0, 0, 0.03]
     )
     pose_fence['X_Ggrasp'] = CmdPoseGoal()
-    pose_fence['X_Ggrasp'].pose = to_ros_pose(X_Ggrasp)
+    pose_fence['X_Ggrasp'].pose.pose = to_ros_pose(X_Ggrasp)
+    pose_fence['X_Ggrasp'].pose.use_estimation = False
     pose_fence['X_Ginsert'] = CmdPoseGoal()
-    pose_fence['X_Ginsert'].pose = to_ros_pose(X_Ginsert)
+    pose_fence['X_Ginsert'].pose.pose = to_ros_pose(X_Ginsert)
+    pose_fence['X_Ginsert'].pose.use_estimation = False
 
     return pose_fence
 
@@ -112,21 +115,24 @@ def getPrismaticPoseFence():
     pose_fence['X_Preinsert'] = keyframe_to_pose("/keyframes/X_Preinsert")
 
     # increase height of pre-insert
-    X_Preinsert = from_ros_pose(pose_fence['X_Preinsert'].pose) @ RigidTransform(
+    X_Preinsert = from_ros_pose(pose_fence['X_Preinsert'].pose.pose) @ RigidTransform(
         [0, 0, -0.01]
     )
     pose_fence['X_Preinsert'] = CmdPoseGoal()
-    pose_fence['X_Preinsert'].pose = to_ros_pose(X_Preinsert)
+    pose_fence['X_Preinsert'].pose.pose = to_ros_pose(X_Preinsert)
+    pose_fence['X_Preinsert'].pose.use_estimation = False
 
-    X_Ggrasp = from_ros_pose(pose_fence['X_Pregrasp'].pose) @ RigidTransform(
+    X_Ggrasp = from_ros_pose(pose_fence['X_Pregrasp'].pose.pose) @ RigidTransform(
         [0, 0, 0.02])
-    X_Ginsert = from_ros_pose(pose_fence['X_Preinsert'].pose) @ RigidTransform(
+    X_Ginsert = from_ros_pose(pose_fence['X_Preinsert'].pose.pose) @ RigidTransform(
         [0, 0, prismatic]
     )
     pose_fence['X_Ggrasp'] = CmdPoseGoal()
-    pose_fence['X_Ggrasp'].pose = to_ros_pose(X_Ggrasp)
+    pose_fence['X_Ggrasp'].pose.pose = to_ros_pose(X_Ggrasp)
+    pose_fence['X_Ggrasp'].pose.use_estimation = False
     pose_fence['X_Ginsert'] = CmdPoseGoal()
-    pose_fence['X_Ginsert'].pose = to_ros_pose(X_Ginsert)
+    pose_fence['X_Ginsert'].pose.pose = to_ros_pose(X_Ginsert)
+    pose_fence['X_Ginsert'].pose.use_estimation = True
 
     return pose_fence
 

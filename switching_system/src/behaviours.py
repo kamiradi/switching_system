@@ -15,7 +15,7 @@ from switching_system.msg import (
     CmdPoseAction, CmdPoseFeedback, CmdPoseResult, CmdPoseGoal
 )
 import sensor_msgs as smsg
-import geometry_msgs as gmsg
+import geometry_msgs.msg as gmsg
 import control_msgs.msg as cmsg
 import queue
 import rospy
@@ -484,7 +484,7 @@ class ForceToBlackboard(ToBlackboard):
         it also maintains a moving average of the force, and checks if contact
         threshold has been exceeded.
         """
-        status = super(forceToBlackboard, self).update()
+        status = super(ForceToBlackboard, self).update()
         if self.blackboard.F_ext.wrench.force.z > self.contact_threshold:
             self.blackboard.contact_estimated = True
         else:
@@ -614,7 +614,7 @@ def EstimationBT(pose_fence):
             - get_next_pose
     """
     # blackboard update nodes
-    force_updateBB = ForceToBlackboard(name="F_extBB")
+    # force_updateBB = ForceToBlackboard(name="F_extBB")
 
     # conditions nodes as guards
     at_target = AtTarget(name="at_target")  # guard condition
@@ -661,8 +661,7 @@ def EstimationBT(pose_fence):
          move]
     )
     insert_composite_seq.add_children(
-        [force_updateBB,
-         move_composite_sel,
+        [move_composite_sel,
          grasp_composite_sel,
          get_pose]
     )
