@@ -4,7 +4,7 @@ import py_trees
 from py_trees.behaviour import Behaviour
 from py_trees.blackboard import Blackboard
 from py_trees.common import Status
-from py_trees.composites import Selector, Sequence
+from py_trees.composites import Selector, Sequence, Parallel
 # from py_trees.decorators import Repeat
 import py_trees_ros
 from py_trees_ros.subscribers import ToBlackboard
@@ -20,159 +20,7 @@ import control_msgs.msg as cmsg
 import queue
 import rospy
 from states import *
-
-
-class PlannerState(Enum):
-    APPROACH = 1
-    ALIGN = 2
-    INSERT = 3
-    INITIALISE = 4
-    PRISMATIC = 5
-    FAILURE = 6
-    RESET = 7
-    TELEOP = 8
-    TERMINATE = 9
-    GRASP = 10
-    PREGRASP = 11
-    GRASPPROACH = 12
-    GRASPREL = 13  # releases grasp
-
-
-##### State Machine Creation #####
-
-
-def createGraphicalStateMachine():
-    """
-    Creates a directed graph to be used by the Behaviour Tree. This converts
-    the Behaviour Tree into a Finite State Machine.
-    """
-    sm = nx.DiGraph()
-    root = State()
-    pre_grasp = State(
-        PlannerState.GRASPPROACH,
-        status=Status.INACTIVE
-    )
-    sm.add_edge(root, pre_grasp, transition="SUCCESS")
-    sm.add_edge(pre_grasp, root, transition="SUCCESS")
-
-    return sm
-
-
-def createGraspStateMachine(pose_fence):
-    """
-    Gets a dictionary of pose waypoints, returns a queue of waypoints and
-    corresponding states
-    """
-    waypoints = queue.Queue(maxsize=15)
-    modes = queue.Queue(maxsize=15)
-
-    waypoints.put(pose_fence['X_Gstart'])
-    modes.put(PlannerState.INITIALISE)
-
-    waypoints.put(pose_fence['X_Pregrasp'])
-    modes.put(PlannerState.GRASPPROACH)
-
-    waypoints.put(pose_fence['X_Ggrasp'])
-    modes.put(PlannerState.PREGRASP)
-
-    waypoints.put(pose_fence['X_Ggrasp'])
-    modes.put(PlannerState.GRASP)
-
-    waypoints.put(pose_fence['X_Insertapproach'])
-    modes.put(PlannerState.APPROACH)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.ALIGN)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.INSERT)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.GRASPREL)
-
-    waypoints.put(pose_fence['X_Gstart'])
-    modes.put(PlannerState.TERMINATE)
-
-    return waypoints, modes
-
-
-def createEstimationStateMachine(pose_fence):
-    """
-    Gets a dictionary of pose waypoints, returns a queue of waypoints and
-    corresponding states
-    """
-    waypoints = queue.Queue(maxsize=50)
-    modes = queue.Queue(maxsize=50)
-
-    waypoints.put(pose_fence['X_Gstart'])
-    modes.put(PlannerState.INITIALISE)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.ALIGN)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.GRASP)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.INSERT)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.ALIGN)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.INSERT)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.ALIGN)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.INSERT)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.ALIGN)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.INSERT)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.ALIGN)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.INSERT)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.ALIGN)
-
-    waypoints.put(pose_fence['X_Ginsert'])
-    modes.put(PlannerState.INSERT)
-
-    waypoints.put(pose_fence['X_Preinsert'])
-    modes.put(PlannerState.GRASPREL)
-
-    waypoints.put(pose_fence['X_Gstart'])
-    modes.put(PlannerState.TERMINATE)
-
-    return waypoints, modes
-
-
-def createDebugStateMachine(pose_fence):
-    """
-    Gets a dictionary of poses, returns a queue of waypoints and corresponding
-    discrete states
-    """
-    waypoints = queue.Queue(maxsize=5)
-    modes = queue.Queue(maxsize=5)
-
-    waypoints.put(pose_fence['X_Gstart'])
-    modes.put(PlannerState.INITIALISE)
-
-    waypoints.put(pose_fence['X_Pregrasp'])
-    modes.put(PlannerState.PREGRASP)
-
-    waypoints.put(pose_fence['X_Gstart'])
-    modes.put(PlannerState.RESET)
-
-    return waypoints, modes
+from task_compilation import *
 
 # BT Leaf nodes
 
@@ -274,7 +122,7 @@ class GraspCheck(Behaviour):
 
 class GetNextPose(Behaviour):
     """
-    This class keeps track of a directed graph representing the state machine
+    This class keeps track of a queue representing the state machine
     """
 
     def __init__(
@@ -306,6 +154,61 @@ class GetNextPose(Behaviour):
         """
         self._waypoints, self._modes = self.sm_func(
             self._pose_fence)
+        self.blackboard.X_Gcommand = self._waypoints.get()
+        self.blackboard.Q = self._modes.get()
+        return True
+
+    def update(self):
+        new_status = py_trees.Status.SUCCESS
+
+        if self._waypoints.empty():
+            new_status = py_trees.Status.FAILURE
+        else:
+            self.blackboard.X_Gcommand = self._waypoints.get()
+            self.blackboard.Q = self._modes.get()
+
+        mode = self.blackboard.Q
+        # update grasp variable on blackboard
+        if mode == PlannerState.GRASP:
+            self.blackboard.grasp_action = True
+        elif mode == PlannerState.GRASPREL:
+            self.blackboard.grasp_action = True
+        else:
+            self.blackboard.grasp_action = False
+        return new_status
+
+
+class GetNextPoseCompiled(Behaviour):
+    """
+    This class keeps track of a queue representing the state machine. It
+    recieves a compiled task, represented as a dictionary of waypoints and
+    modes.
+    """
+
+    def __init__(
+            self,
+            compiled_task,
+            graph=None,
+            name="GetNextPose"):
+        """
+        This leaf node constructs the state machine and keeps track of the
+        current state. It recieves a pose fence and a function that constructs
+        a state machine.
+        """
+        super(GetNextPoseCompiled, self).__init__(name)
+        self._graph = graph
+        self._waypoints = compiled_task['waypoints']
+        self._modes = compiled_task['modes']
+        self.blackboard = Blackboard()
+
+    def initialise(self):
+        pass
+
+    def setup(self, timeout=5):
+        """
+        Create the directed graph here. This grpah represents the evolution of
+        the state machine
+        """
         self.blackboard.X_Gcommand = self._waypoints.get()
         self.blackboard.Q = self._modes.get()
         return True
@@ -624,6 +527,151 @@ def EstimationBT(pose_fence):
         name="get_next_pose",
         pose_fence=pose_fence,
         sm_func=createEstimationStateMachine
+    )
+    # move = MoveToPose(name="move_to_pose")
+    move = MoveToPose(
+        action_namespace="cmd_pose",
+        action_spec=CmdPoseAction,
+        action_goal=CmdPoseGoal(),
+        override_feedback_message_on_running="moving"
+    )
+
+    grasp = Grasp(
+        action_namespace="gripper_controller/gripper_cmd",
+        action_spec=cmsg.GripperCommandAction,
+        action_goal=cmsg.GripperCommandGoal(),
+        override_feedback_message_on_running="grasping"
+    )
+
+    # control nodes
+    insert_composite_seq = Sequence(name="insert_seq", memory=False)
+    move_composite_sel = Selector(name="check_and_move_sel", memory=False)
+    grasp_composite_sel = Selector(name="check_and_grasp_sel", memory=False)
+    should_grasp = GraspCheck(name="grasp_check")
+
+    # root = Timeout(
+    #     name="execute_dec",
+    #     child=insert_seq,
+    #     num_success=-1)
+    root = insert_composite_seq
+
+    grasp_composite_sel.add_children(
+        [should_grasp,
+         grasp]
+    )
+    move_composite_sel.add_children(
+        [at_target,
+         move]
+    )
+    insert_composite_seq.add_children(
+        [move_composite_sel,
+         grasp_composite_sel,
+         get_pose]
+    )
+    return root
+
+
+def BT(compiled_task):
+    """
+    Assembles an insertion state machine, instantiated as a BT via py_trees.
+    The state machine is implemented as follows
+    - repeat_dec
+        - insert_seq
+            - check_and_move_sel
+                - at_target
+                - move_to_pose
+            - get_next_pose
+
+    Accepts a dictionary of the waypoints and modes of the compiled task
+    """
+    # blackboard update nodes
+    force_updateBB = ForceToBlackboard(name="F_extBB")
+
+    topics_BB_seq = Sequence(name="topics_seq", memory=False)
+
+    # conditions nodes as guards
+    at_target = AtTarget(name="at_target")  # guard condition
+
+    # actions
+    get_pose = GetNextPoseCompiled(
+        name="get_next_pose",
+        compiled_task=compiled_task
+    )
+    # move = MoveToPose(name="move_to_pose")
+    move = MoveToPose(
+        action_namespace="cmd_pose",
+        action_spec=CmdPoseAction,
+        action_goal=CmdPoseGoal(),
+        override_feedback_message_on_running="moving"
+    )
+
+    grasp = Grasp(
+        action_namespace="gripper_controller/gripper_cmd",
+        action_spec=cmsg.GripperCommandAction,
+        action_goal=cmsg.GripperCommandGoal(),
+        override_feedback_message_on_running="grasping"
+    )
+
+    # control nodes
+    root_par = Parallel(name="state_machine_par")
+    insert_composite_seq = Sequence(name="insert_seq", memory=False)
+    move_composite_sel = Selector(name="check_and_move_sel", memory=False)
+    grasp_composite_sel = Selector(name="check_and_grasp_sel", memory=False)
+    should_grasp = GraspCheck(name="grasp_check")
+
+    # root = Timeout(
+    #     name="execute_dec",
+    #     child=insert_seq,
+    #     num_success=-1)
+    root = root_par
+
+    root_par.add_children(
+        [topics_BB_seq,
+         insert_composite_seq]
+    )
+
+    topics_BB_seq.add_children(
+        [force_updateBB]
+    )
+
+    grasp_composite_sel.add_children(
+        [should_grasp,
+         grasp]
+    )
+    move_composite_sel.add_children(
+        [at_target,
+         move]
+    )
+    insert_composite_seq.add_children(
+        [move_composite_sel,
+         grasp_composite_sel,
+         get_pose]
+    )
+    return root
+
+
+def LissajousBT(pose_fence):
+    """
+    Assembles an insertion state machine, instantiated as a BT via py_trees.
+    The state machine is implemented as follows
+    - repeat_dec
+        - insert_seq
+            - check_and_move_sel
+                - at_target
+                - move_to_pose
+            - get_next_pose
+    """
+    # blackboard update nodes
+    # force_updateBB = ForceToBlackboard(name="F_extBB")
+
+    # conditions nodes as guards
+    at_target = AtTarget(name="at_target")  # guard condition
+
+    # actions
+    get_pose = GetNextPose(
+        name="get_next_pose",
+        pose_fence=pose_fence,
+        sm_func=createLissajousStateMachine
     )
     # move = MoveToPose(name="move_to_pose")
     move = MoveToPose(

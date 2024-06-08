@@ -101,6 +101,11 @@ def getInsertionPoseFence():
     return pose_fence
 
 
+def getLissajousePoseFence():
+    pose_fence = {}
+    return pose_fence
+
+
 def getPrismaticPoseFence():
     """
     Retrieves keyframes relavant to the prismatic experiment and 
