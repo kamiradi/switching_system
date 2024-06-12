@@ -15,7 +15,7 @@ from pydrake.all import (
 from behaviours import *
 import py_trees_ros
 import py_trees.console as console
-from task_compilation import *
+import task_compilation as tc
 
 
 def shutdown(behaviour_tree):
@@ -327,7 +327,12 @@ class LissajousEstimationMachine(object):
     This class abstracts a motion planner in end-effector cartesian coordinates
     """
 
-    def __init__(self, name, debug=True):
+    def __init__(
+            self,
+            name,
+            pose_fence_callback,
+            state_machine_callback,
+            debug=True):
 
         # class related variables
         self._name = name
@@ -339,6 +344,8 @@ class LissajousEstimationMachine(object):
         self._plan = None
         self._plan_start_time = None
         self._debug = debug
+        self._pose_fence_cb = pose_fence_callback
+        self._sm_callback = state_machine_callback
 
         # subscribers and pulishers
         self._joy_sub = rospy.Subscriber(
@@ -385,8 +392,8 @@ class LissajousEstimationMachine(object):
             rospy.warn("Did not get transform")
             return
 
-        self.pose_fence = getLissajousPoseFence(estimation=True)
-        waypoints, modes = createLissajousStateMachine(self.pose_fence)
+        self.pose_fence = self._pose_fence_cb(estimation=True)
+        waypoints, modes = self._sm_callback(self.pose_fence)
         compiled_task = {}
         compiled_task['waypoints'] = waypoints
         compiled_task['modes'] = modes
@@ -452,10 +459,14 @@ def main():
 
 if __name__ == "__main__":
     rospy.init_node('state_machine', anonymous=False)
-    state_machine = LissajousEstimationMachine(rospy.get_name(), False)
+    state_machine = LissajousEstimationMachine(
+        rospy.get_name(),
+        pose_fence_callback=tc.getLissajousPoseFence,
+        state_machine_callback=tc.createLissajousStateMachine,
+        debug=False)
     # state_machine = FrankaEstimationMachine(rospy.get_name(), False)
     # state_machine = FrankaBTStateMachine(rospy.get_name(), False)
     # state_machine = FrankaDebugStateMachine(rospy.get_name(), False)
-    rospy.sleep(3)
+    rospy.sleep(2)
     state_machine.execute()
     rospy.spin()
