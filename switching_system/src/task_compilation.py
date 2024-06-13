@@ -130,7 +130,7 @@ def lissajous(A, B, a, b, delta, step):
 def getLissajousPoseFence(estimation=True):
     pose_fence = {}
     prismatic = 0.0375
-    lissajous_params = (0.04, 0.04, 0.02, 0.03, -np.pi/2)
+    lissajous_params = (0.02, 0.02, 0.03, 0.02, np.pi/2)
 
     pose_fence['X_Pregrasp'] = keyframe_to_pose("/keyframes/X_Pregrasp")
     pose_fence['X_Gstart'] = keyframe_to_pose("/keyframes/X_Gstart")
@@ -153,8 +153,8 @@ def getLissajousPoseFence(estimation=True):
     pose_fence['X_Ggrasp'].pose.pose = to_ros_pose(X_Ggrasp)
     pose_fence['X_Ggrasp'].pose.use_estimation = False
 
-    for i in range(30):
-        x, y = lissajous(*lissajous_params, i*50)
+    for i in range(60):
+        x, y = lissajous(*lissajous_params, i*10)
         X_temp = X_Preinsert @ RigidTransform(
             [x, y, 0.0]
         )
@@ -292,7 +292,7 @@ def createLissajousStateMachine(pose_fence):
     # waypoints.put(pose_fence['X_Preinsert'])
     # modes.put(PlannerState.ALIGN)
 
-    for i in range(30):
+    for i in range(60):
         waypoints.put(pose_fence['X_Preinsert_{}'.format(i)])
         modes.put(PlannerState.ALIGN)
 
@@ -302,7 +302,7 @@ def createLissajousStateMachine(pose_fence):
         waypoints.put(pose_fence['X_Preinsert_{}'.format(i)])
         modes.put(PlannerState.ALIGN)
 
-    waypoints.put(pose_fence['X_Preinsert_29'])
+    waypoints.put(pose_fence['X_Preinsert_59'])
     modes.put(PlannerState.GRASPREL)
 
     waypoints.put(pose_fence['X_Gstart'])
