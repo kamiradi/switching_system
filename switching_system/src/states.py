@@ -16,6 +16,8 @@ class PlannerState(Enum):
     PREGRASP = 11
     GRASPPROACH = 12
     GRASPREL = 13  # releases grasp
+    INSERTRES = 14
+    ALIGNRES = 15
 
 
 class TransitionInput(Enum):

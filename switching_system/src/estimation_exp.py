@@ -459,10 +459,15 @@ def main():
 
 if __name__ == "__main__":
     rospy.init_node('state_machine', anonymous=False)
+    # state_machine = LissajousEstimationMachine(
+    #     rospy.get_name(),
+    #     pose_fence_callback=tc.getLissajousPoseFence,
+    #     state_machine_callback=tc.createLissajousStateMachine,
+    #     debug=False)
     state_machine = LissajousEstimationMachine(
         rospy.get_name(),
-        pose_fence_callback=tc.getLissajousPoseFence,
-        state_machine_callback=tc.createLissajousStateMachine,
+        pose_fence_callback=tc.getLissajousSlidePoseFence,
+        state_machine_callback=tc.createSlideLissajousStateMachine,
         debug=False)
     # state_machine = FrankaEstimationMachine(rospy.get_name(), False)
     # state_machine = FrankaBTStateMachine(rospy.get_name(), False)

@@ -16,24 +16,9 @@ from pydrake.all import (
     RigidTransform, Quaternion, RollPitchYaw, PiecewisePose
 )
 from behaviours import *
+from states import *
 import py_trees_ros
 import py_trees.console as console
-
-
-class PlannerState(Enum):
-    APPROACH = 1
-    ALIGN = 2
-    INSERT = 3
-    INITIALISE = 4
-    PRISMATIC = 5
-    FAILURE = 6
-    RESET = 7
-    TELEOP = 8
-    TERMINATE = 9
-    GRASP = 10
-    PREGRASP = 11
-    GRASPPROACH = 12
-    GRASPREL = 13  # releases grasp
 
 
 def _write_pose_msg(X_AB, p, q):
@@ -129,8 +114,8 @@ def lissajous(A, B, a, b, delta, step):
 
 def getLissajousPoseFence(estimation=True):
     pose_fence = {}
-    prismatic = 0.0375
-    lissajous_params = (0.02, 0.02, 0.03, 0.02, np.pi/2)
+    prismatic = 0.05
+    lissajous_params = (0.015, 0.015, 0.03, 0.02, np.pi/2)
 
     pose_fence['X_Pregrasp'] = keyframe_to_pose("/keyframes/X_Pregrasp")
     pose_fence['X_Gstart'] = keyframe_to_pose("/keyframes/X_Gstart")
@@ -152,6 +137,55 @@ def getLissajousPoseFence(estimation=True):
     pose_fence['X_Ggrasp'] = CmdPoseGoal()
     pose_fence['X_Ggrasp'].pose.pose = to_ros_pose(X_Ggrasp)
     pose_fence['X_Ggrasp'].pose.use_estimation = False
+
+    for i in range(60):
+        x, y = lissajous(*lissajous_params, i*10)
+        X_temp = X_Preinsert @ RigidTransform(
+            [x, y, 0.0]
+        )
+        X_Ginsert = X_temp @ RigidTransform(
+            [0, 0, prismatic]
+        )
+        pose_fence['X_Preinsert_{}'.format(i)] = CmdPoseGoal()
+        pose_fence['X_Preinsert_{}'.format(i)].pose.pose = to_ros_pose(X_temp)
+        pose_fence['X_Preinsert_{}'.format(i)].pose.use_estimation = False
+
+        pose_fence['X_Ginsert_{}'.format(i)] = CmdPoseGoal()
+        pose_fence['X_Ginsert_{}'.format(i)].pose.pose = to_ros_pose(X_Ginsert)
+        pose_fence['X_Ginsert_{}'.format(i)].pose.use_estimation = estimation
+
+    return pose_fence
+
+
+def getLissajousSlidePoseFence(estimation=True):
+    pose_fence = {}
+    prismatic = 0.03
+    lissajous_params = (0.02, 0.02, 0.03, 0.02, np.pi/2)
+
+    pose_fence['X_Pregrasp'] = keyframe_to_pose("/keyframes/X_Pregrasp")
+    pose_fence['X_Gstart'] = keyframe_to_pose("/keyframes/X_Gstart")
+    pose_fence['X_Insertapproach'] = keyframe_to_pose(
+        "/keyframes/X_Insertapproach")
+    pose_fence['X_Preinsert'] = keyframe_to_pose("/keyframes/X_Preinsert")
+
+    # increase height of pre-insert
+    X_Preinsert = from_ros_pose(pose_fence['X_Preinsert'].pose.pose) @ RigidTransform(
+        [0, 0, -0.0]
+    )
+    pose_fence['X_Preinsert'] = CmdPoseGoal()
+    pose_fence['X_Preinsert'].pose.pose = to_ros_pose(X_Preinsert)
+    pose_fence['X_Preinsert'].pose.use_estimation = False
+
+    # Grasp keypoint
+    X_Ggrasp = from_ros_pose(pose_fence['X_Pregrasp'].pose.pose) @ RigidTransform(
+        [0, 0, 0.02])
+    pose_fence['X_Ggrasp'] = CmdPoseGoal()
+    pose_fence['X_Ggrasp'].pose.pose = to_ros_pose(X_Ggrasp)
+    pose_fence['X_Ggrasp'].pose.use_estimation = False
+
+    pose_fence['X_InsertResult'] = None
+    # pose_fence['X_InsertResult'].pose.pose = to_ros_pose(RigidTransform())
+    # pose_fence['X_InsertResult'].pose.use_estimation = estimation
 
     for i in range(60):
         x, y = lissajous(*lissajous_params, i*10)
@@ -292,7 +326,7 @@ def createLissajousStateMachine(pose_fence):
     # waypoints.put(pose_fence['X_Preinsert'])
     # modes.put(PlannerState.ALIGN)
 
-    for i in range(60):
+    for i in range(10):
         waypoints.put(pose_fence['X_Preinsert_{}'.format(i)])
         modes.put(PlannerState.ALIGN)
 
@@ -303,6 +337,54 @@ def createLissajousStateMachine(pose_fence):
         modes.put(PlannerState.ALIGN)
 
     waypoints.put(pose_fence['X_Preinsert_59'])
+    modes.put(PlannerState.GRASPREL)
+
+    waypoints.put(pose_fence['X_Gstart'])
+    modes.put(PlannerState.TERMINATE)
+
+    return waypoints, modes
+
+
+def createSlideLissajousStateMachine(pose_fence):
+    """
+    Takes the pre-insert pose + takes time step -> adds next point in lissajous
+    curve
+    """
+    waypoints = queue.Queue(maxsize=500)
+    modes = queue.Queue(maxsize=500)
+
+    waypoints.put(pose_fence['X_Gstart'])
+    modes.put(PlannerState.INITIALISE)
+
+    waypoints.put(pose_fence['X_Pregrasp'])
+    modes.put(PlannerState.GRASPPROACH)
+
+    waypoints.put(pose_fence['X_Ggrasp'])
+    modes.put(PlannerState.PREGRASP)
+
+    waypoints.put(pose_fence['X_Ggrasp'])
+    modes.put(PlannerState.GRASP)
+
+    waypoints.put(pose_fence['X_Insertapproach'])
+    modes.put(PlannerState.APPROACH)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.ALIGN)
+
+    for i in range(30):
+        waypoints.put(pose_fence['X_Preinsert_{}'.format(i)])
+        modes.put(PlannerState.ALIGN)
+
+        waypoints.put(pose_fence['X_Ginsert_{}'.format(i)])
+        modes.put(PlannerState.INSERT)
+
+        waypoints.put(pose_fence['X_Preinsert_{}'.format(i)])
+        modes.put(PlannerState.ALIGN)
+
+    waypoints.put(pose_fence['X_Preinsert'])
+    modes.put(PlannerState.INSERTRES)
+
+    waypoints.put(pose_fence['X_Preinsert'])
     modes.put(PlannerState.GRASPREL)
 
     waypoints.put(pose_fence['X_Gstart'])

@@ -8,6 +8,7 @@ import geometry_msgs.msg as geom_msg
 import sensor_msgs.msg as sense_msg
 import control_msgs.msg as ctrl_msg
 from std_srvs.srv import Empty
+from dynamic_reconfigure.client import Client
 from switching_system.msg import CmdPoseAction, CmdPoseFeedback, CmdPoseResult
 from pydrake.all import (
     RigidTransform, Quaternion, RollPitchYaw, PiecewisePose
@@ -96,6 +97,10 @@ class CmdPoseActionServer(object):
             ctrl_msg.GripperCommandActionGoal,
             queue_size=1
         )
+        self.compliance_topic = "/cartesian_impedance_controllerdynamic_reconfigure_compliance_param_node"
+        self.client = Client(self.compliance_topic)
+        rospy.loginfo(
+            "Command pose action server paused until estimation services found")
 
         # start estimation service
         rospy.wait_for_service(self.start_srv)
@@ -190,9 +195,29 @@ class CmdPoseActionServer(object):
         self._idx = 0
         if self.use_estimation:
             try:
+                # change the stiffness parameters
+                self.client.update_configuration(
+                    {"translational_stiffness": 720})
+                self.client.update_configuration(
+                    {"translational_damping": 32})
+                self.client.update_configuration(
+                    {"rotational_stiffness": 45})
+                self.client.update_configuration(
+                    {"rotational_damping": 2.1})
                 success = self._start_estimation_srv()
             except Exception as e:
                 rospy.logwarn("Service call failed: %s", e)
+        else:
+            # keep the stiffness params
+            self.client.update_configuration(
+                {"translational_stiffness": 2000})
+            self.client.update_configuration(
+                {"translational_damping": 89})
+            self.client.update_configuration(
+                {"rotational_stiffness": 150})
+            self.client.update_configuration(
+                {"rotational_damping": 7.0})
+
         self._steps = horizon * self._freq
         dur = rospy.Duration(1.0/self._freq)
         self._timer = rospy.Timer(dur, self.timer_callback)

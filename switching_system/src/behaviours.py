@@ -143,6 +143,8 @@ class GetNextPose(Behaviour):
         self._waypoints = None
         self._modes = None
         self.blackboard = Blackboard()
+        self._tfBuffer = tf2_ros.Buffer()
+        self._tfListener = tf2_ros.TransformListener(self._tfBuffer)
 
     def initialise(self):
         pass
@@ -164,17 +166,44 @@ class GetNextPose(Behaviour):
         if self._waypoints.empty():
             new_status = py_trees.Status.FAILURE
         else:
-            self.blackboard.X_Gcommand = self._waypoints.get()
             self.blackboard.Q = self._modes.get()
+            rospy.loginfo("Mode: {}".format(self.blackboard.Q))
 
         mode = self.blackboard.Q
         # update grasp variable on blackboard
         if mode == PlannerState.GRASP:
             self.blackboard.grasp_action = True
+            self.blackboard.X_Gcommand = self._waypoints.get()
         elif mode == PlannerState.GRASPREL:
             self.blackboard.grasp_action = True
+            self.blackboard.X_Gcommand = self.cmdpose_goal
+            self._waypoints.get()
+        elif mode == PlannerState.INSERTRES:
+            rospy.loginfo("inser result command execution")
+            tf_X_Eeff = self._tfBuffer.lookup_transform(
+                'panda_link0',
+                'result',
+                rospy.Time())
+            translation = tf_X_Eeff.transform.translation
+            orientation = tf_X_Eeff.transform.rotation
+            goal_pose = gmsg.Pose()
+            goal_pose.position.x = translation.x
+            goal_pose.position.y = translation.y
+            goal_pose.position.z = translation.z
+            goal_pose.orientation.x = orientation.x
+            goal_pose.orientation.y = orientation.y
+            goal_pose.orientation.z = orientation.z
+            goal_pose.orientation.w = orientation.w
+            cmdpose_goal = CmdPoseGoal()
+            cmdpose_goal.pose.pose = goal_pose
+            cmdpose_goal.pose.use_estimation = False
+
+            self.cmdpose_goal = cmdpose_goal
+            self.blackboard.X_Gcommand = cmdpose_goal
+            self._waypoints.get()
         else:
             self.blackboard.grasp_action = False
+            self.blackboard.X_Gcommand = self._waypoints.get()
         return new_status
 
 
@@ -200,6 +229,8 @@ class GetNextPoseCompiled(Behaviour):
         self._waypoints = compiled_task['waypoints']
         self._modes = compiled_task['modes']
         self.blackboard = Blackboard()
+        self._tfBuffer = tf2_ros.Buffer()
+        self._tfListener = tf2_ros.TransformListener(self._tfBuffer)
 
     def initialise(self):
         pass
@@ -219,17 +250,43 @@ class GetNextPoseCompiled(Behaviour):
         if self._waypoints.empty():
             new_status = py_trees.Status.FAILURE
         else:
-            self.blackboard.X_Gcommand = self._waypoints.get()
             self.blackboard.Q = self._modes.get()
 
         mode = self.blackboard.Q
         # update grasp variable on blackboard
         if mode == PlannerState.GRASP:
+            self.blackboard.X_Gcommand = self._waypoints.get()
             self.blackboard.grasp_action = True
         elif mode == PlannerState.GRASPREL:
+            self._waypoints.get()
+            self.blackboard.X_Gcommand = self.cmdpose_goal
             self.blackboard.grasp_action = True
+        elif mode == PlannerState.INSERTRES:
+            rospy.loginfo("inser result command execution")
+            tf_X_Eeff = self._tfBuffer.lookup_transform(
+                'panda_link0',
+                'result',
+                rospy.Time())
+            translation = tf_X_Eeff.transform.translation
+            orientation = tf_X_Eeff.transform.rotation
+            goal_pose = gmsg.Pose()
+            goal_pose.position.x = translation.x
+            goal_pose.position.y = translation.y
+            goal_pose.position.z = translation.z
+            goal_pose.orientation.x = orientation.x
+            goal_pose.orientation.y = orientation.y
+            goal_pose.orientation.z = orientation.z
+            goal_pose.orientation.w = orientation.w
+            cmdpose_goal = CmdPoseGoal()
+            cmdpose_goal.pose.pose = goal_pose
+            cmdpose_goal.pose.use_estimation = False
+
+            self.cmdpose_goal = cmdpose_goal
+            self.blackboard.X_Gcommand = cmdpose_goal
+            self._waypoints.get()
         else:
             self.blackboard.grasp_action = False
+            self.blackboard.X_Gcommand = self._waypoints.get()
         return new_status
 
 
@@ -296,7 +353,6 @@ class MoveToPose(ActionClient):
 
     def initialise(self):
         self.logger.debug("{0}.initialise()".format(self.__class__.__name__))
-        rospy.loginfo("move to pose intialise")
         self.sent_goal = False
         goal_on_bb = self.blackboard.X_Gcommand
         self.action_goal = goal_on_bb
