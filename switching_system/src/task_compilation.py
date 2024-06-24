@@ -381,10 +381,12 @@ def createSlideLissajousStateMachine(pose_fence):
         waypoints.put(pose_fence['X_Preinsert_{}'.format(i)])
         modes.put(PlannerState.ALIGN)
 
-    waypoints.put(pose_fence['X_Preinsert'])
+    # waypoints.put(pose_fence['X_Preinsert'])
+    waypoints.put(None)
     modes.put(PlannerState.INSERTRES)
 
-    waypoints.put(pose_fence['X_Preinsert'])
+    # waypoints.put(pose_fence['X_Preinsert'])
+    waypoints.put(None)
     modes.put(PlannerState.GRASPREL)
 
     waypoints.put(pose_fence['X_Gstart'])

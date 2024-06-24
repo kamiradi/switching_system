@@ -231,6 +231,7 @@ class GetNextPoseCompiled(Behaviour):
         self.blackboard = Blackboard()
         self._tfBuffer = tf2_ros.Buffer()
         self._tfListener = tf2_ros.TransformListener(self._tfBuffer)
+        self.cmdpose_goal = None
 
     def initialise(self):
         pass
